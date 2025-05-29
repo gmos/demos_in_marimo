@@ -56,7 +56,7 @@ def _():
     import polars as pl
     import duckdb
     import matplotlib.pyplot as plt
-    return duckdb, mo, os, plt, sa
+    return duckdb, mo, os, pl, plt, sa
 
 
 @app.cell(hide_code=True)
@@ -175,10 +175,10 @@ def _(mo, pg_eng, t1, t2):
 
 
 @app.cell
-def _(lite_eng, mo, t1, t2):
+def _(lite_eng, mo, pl, t1, t2):
     # SQLite (connection lite_eng)   SQLite returns bool as their int equivalent, so the dataframe needs a cast to properly display.
-    _df = mo.sql("SELECT * FROM t1, t2;", engine=lite_eng)
-    #df = mo.sql("SELECT * FROM t1, t2;", engine=lite_eng).with_columns(pl.col("c").cast(pl.Boolean))
+    #_df = mo.sql("SELECT * FROM t1, t2;", engine=lite_eng)
+    _df = mo.sql("SELECT * FROM t1, t2;", engine=lite_eng).with_columns(pl.col("c").cast(pl.Boolean))
     _df
     return
 
@@ -310,8 +310,8 @@ def _(lite_eng, mo, t1, t2):
         -- BOTH INNER JOIN and just JOIN work.  The INNER is default.
         SELECT lft.*, rght.bb
         FROM t1 as lft
-        INNER JOIN t2 as rght
-        --JOIN
+        -- INNER JOIN t2 as rght
+        JOIN t2 as rght
         ON lft.t2_aa = rght.aa;
         """,
         engine=lite_eng
@@ -358,7 +358,7 @@ def _(mo):
 
 
 @app.cell
-def _(mo, pg_eng, t1, t2):
+def _(ddb_eng, mo, t1, t2):
     _df = mo.sql(
         f"""
         SELECT *
@@ -366,7 +366,7 @@ def _(mo, pg_eng, t1, t2):
         LEFT JOIN t2 as rgt
         ON lft.t2_aa = rgt.aa;
         """,
-        engine=pg_eng
+        engine=ddb_eng
     )
     return
 
@@ -461,7 +461,7 @@ def _(lite_eng, mo, sensors):
         f"""
         SELECT *
         FROM sensors AS s
-        ORDER BY s.value
+        ORDER BY s.sensor_id, s.value
         LIMIT 10;
         """,
         engine=lite_eng
@@ -476,28 +476,26 @@ def _(mo):
 
 
 @app.cell
-def _(lite_eng, mo, sensors):
+def _(ddb_eng, mo, sensors):
     _df = mo.sql(
         f"""
-        SELECT s.sensor_id, avg(s.value) AS avg_value, count(value) AS n_rows
+        SELECT s.sensor_id, avg(s.value) AS avg_value, count(s.value) AS n_rows
         FROM sensors AS s
         GROUP BY s.sensor_id;
         """,
-        engine=lite_eng
+        engine=ddb_eng
     )
     return
 
 
-app._unparsable_cell(
-    r"""
-    But we are only interested in the ones after 11:00:00.
-    """,
-    column=None, disabled=False, hide_code=True, name="_"
-)
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""But we are only interested in the ones after 11:00:00.""")
+    return
 
 
 @app.cell
-def _(mo, pg_eng, sensors):
+def _(ddb_eng, mo, sensors):
     _df = mo.sql(
         f"""
         SELECT s.sensor_id, AVG(s.value)AS avg_value, count(value) AS n_rows
@@ -506,7 +504,7 @@ def _(mo, pg_eng, sensors):
         WHERE EXTRACT(HOUR FROM s.timestamp) > 10 -- OK for Postgres and DuckDB, not for SQLite
         GROUP BY s.sensor_id;
         """,
-        engine=pg_eng
+        engine=ddb_eng
     )
     return
 
@@ -523,14 +521,14 @@ def _(ddb_eng, mo, sensors):
         f"""
         SELECT s.sensor_id
             , round(n%3) AS magic
-        --  , AVG(s.value) AS avg_value,
-        --  , count(value) AS n_rows
+            , AVG(s.value) AS avg_value
+          , count(value) AS n_rows
         FROM sensors AS s
         --WHERE strftime('%H', s.timestamp) > '10'  -- OK for SQLite and DuckDB, not for postgres
-        --WHERE EXTRACT(HOUR FROM s.timestamp) > 10 -- OK for Postgres and DuckDB, not for SQLite
-        --GROUP BY s.sensor_id --, magic
-        --HAVING magic % 2 = 0
-        --ORDER BY s.sensor_id, magic
+        WHERE EXTRACT(HOUR FROM s.timestamp) > 10 -- OK for Postgres and DuckDB, not for SQLite
+        GROUP BY s.sensor_id, magic
+        HAVING magic % 2 = 0
+        ORDER BY s.sensor_id, magic
         ;
         """,
         engine=ddb_eng
@@ -612,12 +610,12 @@ def _(employee, mo, pg_eng):
                 JOIN hier_emp AS he
                 ON tr.boss_id = he.emp_id
             )
-        SELECT * FROM hier_emp;
-        --SELECT he.emp_id, he.emp_name, bn.emp_name as boss_name, he.level
-        --FROM hier_emp AS he
-        --LEFT JOIN employee AS bn
-        --ON he.boss_id = bn.emp_id
-        --ORDER BY he.level, boss_name;
+        --SELECT * FROM hier_emp;
+        SELECT he.emp_id, he.emp_name, bn.emp_name as boss_name, he.level
+        FROM hier_emp AS he
+        LEFT JOIN employee AS bn
+        ON he.boss_id = bn.emp_id
+        ORDER BY he.level, boss_name;
         """,
         engine=pg_eng
     )
@@ -629,8 +627,8 @@ def _(mo):
     mo.md(
         r"""
     ## Window Functions
-    * A **window function** yiedlds a scalar value, computed over one or more rows in a bag (or set). The bag is defined in the `OVER` clause.
-    * The syntax is:<br> `WIN_FUNCTION(...) OVER( [PARTITION BY ...]  [GROUP BY ...]  [<frame/window\>] )`
+    * A **window function** yields a scalar value, computed over one or more rows in a bag (or set). The bag is defined in the `OVER` clause.
+    * The syntax is:<br> `WIN_FUNCTION(...) OVER( [PARTITION BY ...]  [ORDER BY ...]  [<frame/window\>] )`
     * The selected rows are optionally first **partitioned**, or grouped with the optional `PARTITION BY` clause.
     * In many cases order in the partition matters, so a sort can be done using the optional `ORDER BY` clause.
     * Next a **window or frame**, anchored by the **current row**, slides over the data, as specified in the optional window/frame clause.
@@ -731,26 +729,18 @@ def _(plt, sens_df1, sens_df2):
 def _(ddb_eng, mo, sensors):
     sens_df3 = mo.sql(
         f"""
-        SELECT
-            s.sensor_id,
-            s.timestamp,
-            s.value,
+        SELECT s.sensor_id, s.timestamp, s.value,
             ROUND(
-                (
-                    s.value - LAG (s.value, 1, s.value) OVER (
-                        PARTITION BY
-                            s.sensor_id
-                        ORDER BY
-                            s.timestamp
-                    )
-                ),
-                3 -- Error for Postgres, optional for DuckDB, mandatory for SQLite.
-                --        )::numeric, 3   -- Mandatory for Postgres, optional for DuckDB, error for SQLite.
+                (s.value - LAG(s.value, 1, s.value)
+                          OVER (
+                              PARTITION BY s.sensor_id
+                              ORDER BY s.timestamp
+                          )
+                ), 3 -- Error for Postgres, optional for DuckDB, mandatory for SQLite.
+        --        )::numeric, 3   -- Mandatory for Postgres, optional for DuckDB, error for SQLite.
             ) AS value_difference
-        FROM
-            sensors AS s
-        WHERE
-            sensor_id = 1;
+        FROM sensors AS s
+        WHERE sensor_id = 1;
         """,
         engine=ddb_eng
     )

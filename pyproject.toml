@@ -7,8 +7,11 @@ requires-python = ">=3.13"
 dependencies = [
     "duckdb>=1.2.2",
     "marimo>=0.13.10",
+    "matplotlib>=3.10.3",
+    "pandas>=2.2.3",
     "polars>=1.29.0",
     "psycopg2>=2.9.10",
+    "pyarrow>=20.0.0",
     "sqlalchemy>=2.0.41",
     "sqlglot>=26.17.1",
 ]

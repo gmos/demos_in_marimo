@@ -17,5 +17,7 @@ demo.duckdb
 demo.duckdb.wal
 demo.sqlite
 __marimo__/
-setenv.ps1
+.cache
+img/Thumbs.db
+
 
